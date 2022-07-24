@@ -45,7 +45,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
     let mut tasks = vec![];
     for remote in cfg.remotes {
-        let task = tokio::spawn(async { client(remote).await });
+        let task = tokio::spawn(client(remote));
         tasks.push(task)
     }
 
@@ -54,7 +54,7 @@ async fn main() {
     trace!("client_out={:?}", out)
 }
 
-async fn client(remote: RemoteConnection) -> Result<(), Error> {
+async fn client(remote: RemoteConnection) -> anyhow::Result<()> {
     trace!(remote.url);
     let url = url::Url::parse(&remote.url).unwrap();
     let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
@@ -63,6 +63,13 @@ async fn client(remote: RemoteConnection) -> Result<(), Error> {
     let (ws_sender, ws_receiver) = ws_stream.split();
 
     let (to_remote_tx, to_remote_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let body = reqwest::get("https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=1000")
+        .await?
+        .text()
+        .await?;
+    let v = parse_json(body.into_bytes())?;
+    trace!("depth_snapshot={}", v);
 
     if let Some(sub_msg) = remote.sub_msg {
         to_remote_tx.send(Message::Text(sub_msg)).unwrap()
@@ -81,12 +88,12 @@ async fn client(remote: RemoteConnection) -> Result<(), Error> {
                 match msg {
                     Some(msg) => {
                         match handle_msg(&remote.market, msg).await {
-                            Err(err) => break Err(err),
+                            Err(err) => break Err(anyhow::anyhow!(err)),
                             Ok(()) => continue
                         }
                     }
                     None => {
-                       break Err(Error::ConnectionClosed)
+                       break Err(anyhow::anyhow!(Error::ConnectionClosed))
                     }
                 }
             }
@@ -131,7 +138,7 @@ async fn handle_msg(market: &Market, msg: Result<Message, Error>) -> Result<(), 
     }
 }
 
-fn parse_json(mut b: Vec<u8>) -> Result<Value, Box<dyn std::error::Error>> {
+fn parse_json(mut b: Vec<u8>) -> anyhow::Result<Value> {
     let v: Value = simd_json::serde::from_slice(&mut b)?;
     Ok(v)
 }
