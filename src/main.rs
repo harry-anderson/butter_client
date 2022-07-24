@@ -74,16 +74,15 @@ async fn handle_msg(msg: Result<Message, Error>) -> Result<(), Error> {
             Err(Error::ConnectionClosed)
         }
         Message::Text(text) => {
-            trace!("text_msg={:?}", text);
-            let mut text = text.as_bytes().to_vec();
-            let v: Value = simd_json::serde::from_slice(&mut text).unwrap();
+            let text = text.as_bytes().to_vec();
+            let v = parse_json_string(text).unwrap();
             trace!("pared_value={}", v);
             Ok(())
         }
         Message::Binary(bytes) => {
             trace!("bin_msg={:?}", bytes);
-            let text = from_utf8(&bytes)?;
-            trace!("bin_msg_txt={:?}", text);
+            let v = parse_json_string(bytes).unwrap();
+            trace!("pared_value={}", v);
             Ok(())
         }
         _ => {
@@ -91,4 +90,9 @@ async fn handle_msg(msg: Result<Message, Error>) -> Result<(), Error> {
             Ok(())
         }
     }
+}
+
+fn parse_json_string(mut b: Vec<u8>) -> Result<Value, Box<dyn std::error::Error>> {
+    let v: Value = simd_json::serde::from_slice(&mut b)?;
+    Ok(v)
 }
