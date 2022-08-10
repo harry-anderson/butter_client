@@ -79,7 +79,6 @@ dependencies = [
  "tracing",
  "tracing-futures",
  "tracing-subscriber",
- "tracing-tokio",
  "url",
 ]
 
@@ -1246,12 +1245,6 @@ dependencies = [
  "tracing-core",
  "tracing-log",
 ]
-
-[[package]]
-name = "tracing-tokio"
-version = "0.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f1815e2d51a42fce3530fa83163396f72d2ef4df6a1e87e7ade7d7decd4e215"
 
 [[package]]
 name = "try-lock"

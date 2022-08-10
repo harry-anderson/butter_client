@@ -1,10 +1,10 @@
+use butter_client::{parse_json, BinanceSnapshot, Order};
 use futures_util::{future::join_all, pin_mut, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 use tokio::select;
 
 use serde_json::Value;
-use simd_json;
 
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message, tungstenite::Error};
 use tracing::{error, trace};
@@ -64,12 +64,25 @@ async fn client(remote: RemoteConnection) -> anyhow::Result<()> {
 
     let (to_remote_tx, to_remote_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    let body = reqwest::get("https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=1000")
-        .await?
-        .text()
-        .await?;
-    let v = parse_json(body.into_bytes())?;
-    trace!("depth_snapshot={}", v);
+    tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        let body: BinanceSnapshot = client
+            .get("https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=1000")
+            .send()
+            .await?
+            .json()
+            .await?;
+        // let v = parse_json(body.into_bytes())?;
+
+        let last_update_id = body.last_update_id;
+        trace!(
+            "depth_snapshot last_update_id={} bids={:?} asks={:?}",
+            last_update_id,
+            body.bids,
+            body.asks
+        );
+        Ok::<(), anyhow::Error>(())
+    });
 
     if let Some(sub_msg) = remote.sub_msg {
         to_remote_tx.send(Message::Text(sub_msg)).unwrap()
@@ -114,8 +127,7 @@ async fn handle_msg(market: &Market, msg: Result<Message, Error>) -> Result<(), 
             let text = text.as_bytes().to_vec();
             match parse_json(text) {
                 Ok(v) => {
-                    trace!("pared_value={:?}", v);
-                    read_msg(market, v)?;
+                    consume_msg(market, v)?;
                 }
                 Err(err) => error!("parse_err={}", err),
             }
@@ -124,8 +136,7 @@ async fn handle_msg(market: &Market, msg: Result<Message, Error>) -> Result<(), 
         Message::Binary(bytes) => {
             match parse_json(bytes) {
                 Ok(v) => {
-                    trace!("pared_value={:?}", v);
-                    read_msg(market, v)?;
+                    consume_msg(market, v)?;
                 }
                 Err(err) => error!("parse_err={}", err),
             }
@@ -138,12 +149,7 @@ async fn handle_msg(market: &Market, msg: Result<Message, Error>) -> Result<(), 
     }
 }
 
-fn parse_json(mut b: Vec<u8>) -> anyhow::Result<Value> {
-    let v: Value = simd_json::serde::from_slice(&mut b)?;
-    Ok(v)
-}
-
-fn read_msg(market: &Market, v: Value) -> Result<(), Error> {
+fn consume_msg(market: &Market, v: Value) -> Result<(), Error> {
     match market {
         Market::Binance => {
             trace!("binance_msg={}", v);
