@@ -94,9 +94,6 @@ async fn handle_connection(
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
     let mut interval = tokio::time::interval(Duration::from_millis(1000));
 
-    // Echo incoming WebSocket messages and send a message periodically every second.
-
-    debug!("forwarding ws traffic to: {}", peer);
     loop {
         tokio::select! {
             msg = ws_receiver.next() => {
