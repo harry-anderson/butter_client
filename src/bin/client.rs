@@ -41,9 +41,10 @@ async fn main() {
         .await
         .expect("failed to read c.yaml");
     let cfg: Config = serde_yaml::from_str(&cfg).unwrap();
-
     tracing_subscriber::fmt::init();
+
     let mut tasks = vec![];
+    // rotes
     for remote in cfg.remotes {
         let task = tokio::spawn(client(remote));
         tasks.push(task)
