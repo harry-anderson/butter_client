@@ -1,4 +1,4 @@
-use butter_client::BinanceSnapshot;
+use butter_client::{BinanceSnapshot, ConnectionManager};
 use futures_util::{future::join_all, pin_mut, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, time::Duration};
@@ -45,31 +45,10 @@ async fn main() {
 
     let (proxy_tx, _proxy_rx) = broadcast::channel::<Message>(256);
 
-    let proxy_tx_c = proxy_tx.clone();
+    // let proxy_tx_c = proxy_tx.clone();
+    let mut mgr = ConnectionManager::new(cfg.remote.url);
     let remote_client = async move {
-        let mut reties = 30;
-        let mut backoff = 1;
-        while reties > 0 {
-            reties = reties - 1;
-            backoff = backoff * 2;
-            let (tx, rx) = tokio::sync::oneshot::channel::<usize>();
-
-            let remote = cfg.remote.clone();
-            trace!(
-                "connecting to {:?} in {}s reties {}",
-                remote,
-                backoff,
-                reties
-            );
-            sleep_until(Instant::now() + Duration::from_secs(backoff)).await;
-
-            match client(remote, proxy_tx_c.clone(), tx).await {
-                Ok(()) => continue,
-                Err(err) => {
-                    error!("client disconnected: {:?}", err);
-                }
-            }
-        }
+        mgr.connect().await;
     };
 
     let proxy_server = async move {
@@ -91,53 +70,6 @@ async fn main() {
     select! {
         _ = remote_client => {}
         _ = proxy_server => {}
-    }
-}
-
-async fn client(
-    remote: RemoteConnection,
-    proxy_tx: broadcast::Sender<Message>,
-    reset_backoff: oneshot::Sender<usize>,
-) -> anyhow::Result<()> {
-    trace!(remote.url);
-    let url = url::Url::parse(&remote.url).unwrap();
-    let (ws_stream, _) = connect_async(url).await?;
-    trace!("Handshake success");
-    reset_backoff.send(0).unwrap();
-
-    let (ws_sender, ws_receiver) = ws_stream.split();
-
-    let (to_remote_tx, to_remote_rx) = tokio::sync::mpsc::unbounded_channel();
-
-    if let Some(sub_msg) = remote.sub_msg {
-        to_remote_tx.send(Message::Text(sub_msg)).unwrap()
-    }
-
-    pin_mut!(ws_sender, ws_receiver, to_remote_rx);
-
-    loop {
-        select! {
-            msg = to_remote_rx.recv() => {
-                if let Some(msg) = msg {
-                    ws_sender.send(msg).await.unwrap();
-                }
-            }
-            msg = ws_receiver.next() => {
-                match msg {
-                    Some(msg) => {
-                        match msg {
-                            Err(err) => error!("{:?}", err),
-                            Ok(msg) => {
-                                proxy_tx.send(msg)?;
-                            }
-                        }
-                    }
-                    None => {
-                       break Err(anyhow::anyhow!(Error::ConnectionClosed))
-                    }
-                }
-            }
-        }
     }
 }
 
