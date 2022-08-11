@@ -58,7 +58,6 @@ async fn main() {
             let peer = stream
                 .peer_addr()
                 .expect("connected streams should have a peer address");
-            debug!("peer address: {}", peer);
 
             tokio::spawn(accept_connection(peer, stream, proxy_tx.subscribe()));
         }
@@ -90,7 +89,8 @@ async fn handle_connection(
     mut proxy_rx: broadcast::Receiver<Message>,
 ) -> Result<()> {
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
-    debug!("new peer connection: {}", peer);
+    debug!("peer connected {}", peer);
+
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
     let mut interval = tokio::time::interval(Duration::from_millis(1000));
 

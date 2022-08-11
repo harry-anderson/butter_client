@@ -1,16 +1,14 @@
-use std::{collections::BTreeMap, time::Duration};
-use tokio_tungstenite::tungstenite::protocol::Message;
-
 use futures_util::{pin_mut, SinkExt, StreamExt};
-use serde::{de, Deserialize, Deserializer, Serialize};
-use serde_json::{from_value, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use simd_json;
-use std::sync::Arc;
+use std::time::Duration;
 use tokio::{
     select,
-    sync::{broadcast, RwLock},
+    sync::broadcast,
     time::{sleep_until, Instant},
 };
+use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{connect_async, tungstenite::Error};
 use tracing::{debug, error};
 use url::Url;
@@ -60,19 +58,19 @@ impl ConnectionManager {
             let url = &self.url;
             if self.retries > 0 {
                 debug!(
-                    "connecting to {} in {}s retries left {}",
+                    "remote connecting to {} in {}s retries left {}",
                     url, self.backoff, self.retries,
                 );
                 self.retries -= 1;
                 self.backoff *= 2;
 
                 sleep_until(Instant::now() + Duration::from_secs(self.backoff)).await;
-                debug!("connecting...");
+                debug!("remote connecting...");
                 match self.inner_connect().await {
                     Ok(_) => continue,
                     Err(err) => match err {
                         _ => {
-                            error!("disconnection error {:?}", err);
+                            error!("remote connection error {:?}", err);
                             continue;
                         }
                     },
@@ -83,7 +81,7 @@ impl ConnectionManager {
 
     async fn inner_connect(&mut self) -> Result<(), Error> {
         let (ws_stream, _) = connect_async(self.url.clone()).await?;
-        debug!("connect success {}", self.url);
+        debug!("remote connected {}", self.url);
 
         self.retries = 30;
         self.backoff = 1;
