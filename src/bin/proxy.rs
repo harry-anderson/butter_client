@@ -101,12 +101,11 @@ async fn handle_connection(
                     Some(msg) => {
                         let msg = msg?;
                         if msg.is_text() ||msg.is_binary() {
-                            if let Err(err) = ws_sender.send(msg).await {
-                                error!("{}", err)
-                            }
+                            //todo send upstream via connection mger
+                            debug!("peer connection {} > {:?}", peer, msg);
+
                         } else if msg.is_close() {
-                            debug!("peer disconnected: {}", peer);
-                            break;
+                            debug!("peer disconnected {}", peer);
                         }
                     }
                     None => break,
