@@ -40,14 +40,20 @@ pub struct ConnectionManager {
     retries: u64,
     backoff: u64,
     proxy_tx: broadcast::Sender<Message>,
+    peer_rx: broadcast::Receiver<Message>,
 }
 
 impl ConnectionManager {
-    pub fn new(remote_url: String, proxy_tx: broadcast::Sender<Message>) -> Self {
+    pub fn new(
+        remote_url: String,
+        proxy_tx: broadcast::Sender<Message>,
+        peer_rx: broadcast::Receiver<Message>,
+    ) -> Self {
         let url = url::Url::parse(&remote_url).unwrap();
         Self {
             url,
             proxy_tx,
+            peer_rx,
             retries: 30,
             backoff: 1,
         }
@@ -87,7 +93,7 @@ impl ConnectionManager {
         self.backoff = 1;
 
         let (ws_sender, ws_receiver) = ws_stream.split();
-        let (_to_remote_tx, to_remote_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (to_remote_tx, to_remote_rx) = tokio::sync::mpsc::unbounded_channel();
         pin_mut!(ws_sender, ws_receiver, to_remote_rx);
 
         loop {
@@ -95,6 +101,16 @@ impl ConnectionManager {
                 msg = to_remote_rx.recv() => {
                     if let Some(msg) = msg {
                         ws_sender.send(msg).await.unwrap();
+                    }
+                }
+                msg = self.peer_rx.recv() => {
+                    match msg {
+                        Ok(msg) => {
+                            to_remote_tx.send(msg).unwrap();
+                        }
+                        Err(err) => {
+                            error!("peer recv error {}", err)
+                        }
                     }
                 }
                 msg = ws_receiver.next() => {
@@ -106,7 +122,7 @@ impl ConnectionManager {
                                 }
                                 Ok(msg) => {
                                     if let Err(err) = self.proxy_tx.send(msg) {
-                                        error!("{}", err)
+                                        error!("proxy_tx send {}", err)
                                     }
                                 }
                             }

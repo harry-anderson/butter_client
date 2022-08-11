@@ -42,9 +42,10 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let (proxy_tx, _proxy_rx) = broadcast::channel::<Message>(256);
+    let (peer_tx, peer_rx) = broadcast::channel::<Message>(256);
 
     let proxy_tx_c = proxy_tx.clone();
-    let mut mgr = ConnectionManager::new(cfg.remote.url, proxy_tx_c);
+    let mut mgr = ConnectionManager::new(cfg.remote.url, proxy_tx_c, peer_rx);
     let remote_client = async move {
         mgr.connect().await;
     };
@@ -59,7 +60,12 @@ async fn main() {
                 .peer_addr()
                 .expect("connected streams should have a peer address");
 
-            tokio::spawn(accept_connection(peer, stream, proxy_tx.subscribe()));
+            tokio::spawn(accept_connection(
+                peer,
+                stream,
+                proxy_tx.subscribe(),
+                peer_tx.clone(),
+            ));
         }
     };
     pin_mut!(remote_client, proxy_server);
@@ -74,8 +80,9 @@ async fn accept_connection(
     peer: SocketAddr,
     stream: TcpStream,
     proxy_rx: broadcast::Receiver<Message>,
+    peer_tx: broadcast::Sender<Message>,
 ) {
-    if let Err(e) = handle_connection(peer, stream, proxy_rx).await {
+    if let Err(e) = handle_connection(peer, stream, proxy_rx, peer_tx).await {
         match e {
             Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
             err => error!("Error processing connection: {}", err),
@@ -87,6 +94,7 @@ async fn handle_connection(
     peer: SocketAddr,
     stream: TcpStream,
     mut proxy_rx: broadcast::Receiver<Message>,
+    peer_tx: broadcast::Sender<Message>,
 ) -> Result<()> {
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     debug!("peer connected {}", peer);
@@ -101,8 +109,10 @@ async fn handle_connection(
                     Some(msg) => {
                         let msg = msg?;
                         if msg.is_text() ||msg.is_binary() {
-                            //todo send upstream via connection mger
-                            debug!("peer connection {} > {:?}", peer, msg);
+                            debug!("peer connection {} {:?}", peer, msg);
+                            if let Err(err) = peer_tx.send(msg) {
+                                error!("peer_tx send error {}", err)
+                            }
 
                         } else if msg.is_close() {
                             debug!("peer disconnected {}", peer);
@@ -115,11 +125,11 @@ async fn handle_connection(
                 match msg {
                     Ok(msg) => {
                         if let Err(err) = ws_sender.send(msg).await {
-                            error!("{}", err)
+                            error!("ws_sender send {}", err)
                         }
                     }
                     Err(err) => {
-                        error!("{}", err)
+                        error!("proxy_rx error {}", err)
                     }
                 }
             }
