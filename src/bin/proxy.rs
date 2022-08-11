@@ -1,20 +1,18 @@
-use butter_client::{BinanceSnapshot, ConnectionManager};
-use futures_util::{future::join_all, pin_mut, SinkExt, StreamExt};
+use butter_client::ConnectionManager;
+use chrono::Utc;
+use futures_util::{pin_mut, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, to_string};
 use std::{net::SocketAddr, time::Duration};
 use structopt::StructOpt;
-use tokio::join;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
-use tokio::time::{sleep_until, Instant};
 use tokio::{select, sync::broadcast};
-
 use tokio_tungstenite::{
-    accept_async, connect_async,
+    accept_async,
     tungstenite::protocol::Message,
     tungstenite::{Error, Result},
 };
-use tracing::{error, trace};
+use tracing::{debug, error};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct RemoteConnection {
@@ -45,8 +43,8 @@ async fn main() {
 
     let (proxy_tx, _proxy_rx) = broadcast::channel::<Message>(256);
 
-    // let proxy_tx_c = proxy_tx.clone();
-    let mut mgr = ConnectionManager::new(cfg.remote.url);
+    let proxy_tx_c = proxy_tx.clone();
+    let mut mgr = ConnectionManager::new(cfg.remote.url, proxy_tx_c);
     let remote_client = async move {
         mgr.connect().await;
     };
@@ -54,13 +52,13 @@ async fn main() {
     let proxy_server = async move {
         let addr = "127.0.0.1:9002";
         let listener = TcpListener::bind(&addr).await.expect("Can't listen");
-        trace!("Listening on: {}", addr);
+        debug!("listening on: {}", addr);
 
         while let Ok((stream, _)) = listener.accept().await {
             let peer = stream
                 .peer_addr()
                 .expect("connected streams should have a peer address");
-            trace!("Peer address: {}", peer);
+            debug!("peer address: {}", peer);
 
             tokio::spawn(accept_connection(peer, stream, proxy_tx.subscribe()));
         }
@@ -92,12 +90,13 @@ async fn handle_connection(
     mut proxy_rx: broadcast::Receiver<Message>,
 ) -> Result<()> {
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
-    trace!("New WebSocket connection: {}", peer);
+    debug!("new peer connection: {}", peer);
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
     let mut interval = tokio::time::interval(Duration::from_millis(1000));
 
     // Echo incoming WebSocket messages and send a message periodically every second.
 
+    debug!("forwarding ws traffic to: {}", peer);
     loop {
         tokio::select! {
             msg = ws_receiver.next() => {
@@ -105,8 +104,11 @@ async fn handle_connection(
                     Some(msg) => {
                         let msg = msg?;
                         if msg.is_text() ||msg.is_binary() {
-                            ws_sender.send(msg).await?;
+                            if let Err(err) = ws_sender.send(msg).await {
+                                error!("{}", err)
+                            }
                         } else if msg.is_close() {
+                            debug!("peer disconnected: {}", peer);
                             break;
                         }
                     }
@@ -116,16 +118,18 @@ async fn handle_connection(
             msg = proxy_rx.recv() => {
                 match msg {
                     Ok(msg) => {
-                        ws_sender.send(msg).await?;
+                        if let Err(err) = ws_sender.send(msg).await {
+                            error!("{}", err)
+                        }
                     }
                     Err(err) => {
-                        error!("error: {:?}", err)
+                        error!("{}", err)
                     }
                 }
             }
-
             _ = interval.tick() => {
-                ws_sender.send(Message::Text("tick".to_owned())).await?;
+                let msg = json!({"time": Utc::now().to_rfc3339()});
+                ws_sender.send(Message::Text(to_string(&msg).unwrap())).await?;
             }
         }
     }

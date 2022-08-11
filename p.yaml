@@ -1,5 +1,4 @@
 ---
 remote:
-  market: binance
-  url: ws://127.0.0.1:8420
-
+  url: wss://stream.binance.com:9443/ws/btcusdt@depth@100ms 
+  # url: ws://127.0.0.1:8420

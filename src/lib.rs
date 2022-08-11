@@ -1,4 +1,5 @@
 use std::{collections::BTreeMap, time::Duration};
+use tokio_tungstenite::tungstenite::protocol::Message;
 
 use futures_util::{pin_mut, SinkExt, StreamExt};
 use serde::{de, Deserialize, Deserializer, Serialize};
@@ -7,11 +8,11 @@ use simd_json;
 use std::sync::Arc;
 use tokio::{
     select,
-    sync::RwLock,
+    sync::{broadcast, RwLock},
     time::{sleep_until, Instant},
 };
 use tokio_tungstenite::{connect_async, tungstenite::Error};
-use tracing::{error, trace};
+use tracing::{debug, error};
 use url::Url;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -40,13 +41,15 @@ pub struct ConnectionManager {
     url: Url,
     retries: u64,
     backoff: u64,
+    proxy_tx: broadcast::Sender<Message>,
 }
 
 impl ConnectionManager {
-    pub fn new(remote_url: String) -> Self {
+    pub fn new(remote_url: String, proxy_tx: broadcast::Sender<Message>) -> Self {
         let url = url::Url::parse(&remote_url).unwrap();
         Self {
             url,
+            proxy_tx,
             retries: 30,
             backoff: 1,
         }
@@ -56,22 +59,20 @@ impl ConnectionManager {
         loop {
             let url = &self.url;
             if self.retries > 0 {
-                trace!(
+                debug!(
                     "connecting to {} in {}s retries left {}",
-                    url,
-                    self.backoff,
-                    self.retries,
+                    url, self.backoff, self.retries,
                 );
                 self.retries -= 1;
                 self.backoff *= 2;
 
                 sleep_until(Instant::now() + Duration::from_secs(self.backoff)).await;
-                trace!("connecting...");
+                debug!("connecting...");
                 match self.inner_connect().await {
                     Ok(_) => continue,
                     Err(err) => match err {
                         _ => {
-                            error!("connection error {:?}", err);
+                            error!("disconnection error {:?}", err);
                             continue;
                         }
                     },
@@ -82,7 +83,7 @@ impl ConnectionManager {
 
     async fn inner_connect(&mut self) -> Result<(), Error> {
         let (ws_stream, _) = connect_async(self.url.clone()).await?;
-        trace!("Handshake success");
+        debug!("connect success {}", self.url);
 
         self.retries = 30;
         self.backoff = 1;
@@ -106,8 +107,9 @@ impl ConnectionManager {
                                     break Err(err)
                                 }
                                 Ok(msg) => {
-                                    // proxy_tx.send(msg)?;
-                                    trace!("got msg {:?}", msg);
+                                    if let Err(err) = self.proxy_tx.send(msg) {
+                                        error!("{}", err)
+                                    }
                                 }
                             }
                         }
