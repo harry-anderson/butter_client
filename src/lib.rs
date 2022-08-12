@@ -1,7 +1,6 @@
 use futures_util::{pin_mut, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use simd_json;
 use std::time::Duration;
 use tokio::{
     select,
@@ -31,7 +30,7 @@ pub struct Order {
 }
 
 pub fn parse_json(mut b: Vec<u8>) -> anyhow::Result<Value> {
-    let v: Value = simd_json::serde::from_slice(&mut b)?;
+    let v: Value = serde_json::from_slice(&mut b)?;
     Ok(v)
 }
 
@@ -71,7 +70,7 @@ impl ConnectionManager {
                 self.backoff *= 2;
 
                 sleep_until(Instant::now() + Duration::from_secs(self.backoff)).await;
-                debug!("remote connecting...");
+                debug!("remote {} connecting...", self.url);
                 match self.inner_connect().await {
                     Ok(_) => continue,
                     Err(err) => match err {

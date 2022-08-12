@@ -1,5 +1,3 @@
 ---
-remote:
-  # url: wss://stream.binance.com:9443/ws/btcusdt@depth@100ms 
-  url: wss://ws-feed.exchange.coinbase.com
-  # url: ws://127.0.0.1:8420
+remote: wss://stream.binance.com:9443/ws/btcusdt@trade
+peer: 127.0.0.1:8420

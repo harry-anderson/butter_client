@@ -14,16 +14,10 @@ use tokio_tungstenite::{
 };
 use tracing::{debug, error};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct RemoteConnection {
-    url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sub_msg: Option<String>,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
-    remote: RemoteConnection,
+    remote: String,
+    peer: String,
 }
 
 #[derive(Debug, StructOpt)]
@@ -45,15 +39,14 @@ async fn main() {
     let (peer_tx, peer_rx) = broadcast::channel::<Message>(256);
 
     let proxy_tx_c = proxy_tx.clone();
-    let mut mgr = ConnectionManager::new(cfg.remote.url, proxy_tx_c, peer_rx);
+    let mut mgr = ConnectionManager::new(cfg.remote, proxy_tx_c, peer_rx);
     let remote_client = async move {
         mgr.connect().await;
     };
 
     let proxy_server = async move {
-        let addr = "127.0.0.1:9002";
-        let listener = TcpListener::bind(&addr).await.expect("Can't listen");
-        debug!("listening on: {}", addr);
+        let listener = TcpListener::bind(&cfg.peer).await.expect("Can't listen");
+        debug!("listening on: {}", cfg.peer);
 
         while let Ok((stream, _)) = listener.accept().await {
             let peer = stream

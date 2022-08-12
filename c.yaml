@@ -1,5 +1,10 @@
 ---
 mode: proxy
 remotes:
-  - market: binance
-    url: wss://stream.binance.com:9443/ws/btcusdt@depth@100ms 
+  # - market: binance
+  #   url: wss://stream.binance.com:9443/ws/btcusdt@trade
+  - market: coinbase
+    url: wss://ws-feed.exchange.coinbase.com
+    sub_msg: |
+      { "type": "subscribe", "product_ids": [ "ETH-USD" ], "channels": [ "level2" ] }
+

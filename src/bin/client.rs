@@ -1,4 +1,4 @@
-use butter_client::{parse_json, BinanceSnapshot, Order};
+use butter_client::{parse_json, BinanceSnapshot};
 use futures_util::{future::join_all, pin_mut, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
