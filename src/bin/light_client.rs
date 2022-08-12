@@ -149,10 +149,7 @@ fn consume_msg(remote: &Remote, v: Value) -> Result<(), Error> {
                     let event_time_millis = msg.time.timestamp_millis();
                     let now = Utc::now().timestamp_millis();
                     let ms_dd = now - event_time_millis;
-                    debug!(
-                        "market={:?} url={} ms_dd={}",
-                        remote.market, remote.url, ms_dd
-                    )
+                    debug!("remote={} ms_dd={}", remote.name, ms_dd)
                 }
                 Err(err) => {
                     trace!("coinbase parse error {}", err);

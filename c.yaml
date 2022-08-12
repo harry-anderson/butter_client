@@ -1,5 +1,4 @@
 ---
-mode: proxy
 remotes:
   - market: binance
     name: bin:dire
@@ -8,6 +7,7 @@ remotes:
     name: bin:prox
     url: ws://127.0.0.1:5002
   # - market: coinbase
+  #   name: coi:dire
   #   url: wss://ws-feed.exchange.coinbase.com
   #   sub_msg: |
   #     { "type": "subscribe", "product_ids": [ "ETH-USD" ], "channels": [ "level2" ] }
