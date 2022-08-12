@@ -144,6 +144,8 @@ pub struct CoinbaseMsg {
 
 #[derive(Deserialize, Debug)]
 pub struct BinanceMessage {
+    #[serde(rename = "t")]
+    pub trade_id: i64,
     #[serde(rename = "E")]
-    pub event_time: i64, // Event time
+    pub event_time: i64,
 }

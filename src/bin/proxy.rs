@@ -127,7 +127,7 @@ async fn handle_connection(
                 }
             }
             _ = interval.tick() => {
-                let msg = json!({"time": Utc::now().to_rfc3339()});
+                let msg = json!({"proxy_time": Utc::now().to_rfc3339()});
                 ws_sender.send(Message::Text(to_string(&msg).unwrap())).await?;
             }
         }

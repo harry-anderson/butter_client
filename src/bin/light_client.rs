@@ -1,18 +1,19 @@
 use butter_client::{parse_json, BinanceMessage, CoinbaseMsg, ConnectionManager};
 use chrono::Utc;
-use futures_util::{future::join_all, pin_mut, SinkExt, StreamExt};
+use futures_util::{future::join_all, pin_mut};
 use serde::{Deserialize, Serialize};
-use serde_json::{from_str, from_value, Value};
+use serde_json::{from_value, Value};
 use structopt::StructOpt;
 use tokio::{select, sync::broadcast};
 use tokio_tungstenite::{
     tungstenite::protocol::Message,
     tungstenite::{Error, Result},
 };
-use tracing::{debug, error, field::debug, trace};
+use tracing::{debug, error, trace};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Remote {
+    name: String,
     url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     sub_msg: Option<String>,
@@ -52,23 +53,27 @@ async fn main() {
             let (proxy_tx, mut proxy_rx) = broadcast::channel::<Message>(256);
             let (peer_tx, peer_rx) = broadcast::channel::<Message>(256);
             let proxy_tx_c = proxy_tx.clone();
-            let mut mgr = ConnectionManager::new(remote.url, proxy_tx_c, peer_rx);
+            let mut mgr = ConnectionManager::new(remote.url.clone(), proxy_tx_c, peer_rx);
             let remote_client = async move {
                 mgr.connect().await;
             };
 
+            let remote_c = remote.clone();
             let msg_reader = async move {
-                //TODO match msg
-                while let Ok(msg) = proxy_rx.recv().await {
-                    if let Err(err) = handle_msg(&remote.market, msg).await {
-                        error!("handle_msg error: {}", err)
+                loop {
+                    match proxy_rx.recv().await {
+                        Ok(msg) => {
+                            if let Err(err) = handle_msg(&remote_c, msg).await {
+                                error!("handle_msg error: {}", err)
+                            }
+                        }
+                        Err(err) => error!("msg_reader error {}", err),
                     }
                 }
-                debug("msg_reader exited")
             };
 
-            if let Some(sub_msg) = remote.sub_msg {
-                if let Err(err) = peer_tx.send(Message::Text(sub_msg)) {
+            if let Some(sub_msg) = &remote.sub_msg {
+                if let Err(err) = peer_tx.send(Message::Text(sub_msg.clone())) {
                     error!("peer_tx send error {}", err)
                 }
             }
@@ -87,7 +92,7 @@ async fn main() {
     debug!("out={:?}", out)
 }
 
-async fn handle_msg(market: &Market, msg: Message) -> Result<(), Error> {
+async fn handle_msg(remote: &Remote, msg: Message) -> Result<(), Error> {
     match msg {
         Message::Close(c) => {
             if let Some(c) = c {
@@ -99,7 +104,7 @@ async fn handle_msg(market: &Market, msg: Message) -> Result<(), Error> {
             let text = text.as_bytes().to_vec();
             match parse_json(text) {
                 Ok(v) => {
-                    consume_msg(market, v)?;
+                    consume_msg(remote, v)?;
                 }
                 Err(err) => error!("parse_err={}", err),
             }
@@ -108,7 +113,7 @@ async fn handle_msg(market: &Market, msg: Message) -> Result<(), Error> {
         Message::Binary(bytes) => {
             match parse_json(bytes) {
                 Ok(v) => {
-                    consume_msg(market, v)?;
+                    consume_msg(remote, v)?;
                 }
                 Err(err) => error!("parse_err={}", err),
             }
@@ -121,15 +126,19 @@ async fn handle_msg(market: &Market, msg: Message) -> Result<(), Error> {
     }
 }
 
-fn consume_msg(market: &Market, v: Value) -> Result<(), Error> {
-    match market {
+fn consume_msg(remote: &Remote, v: Value) -> Result<(), Error> {
+    match remote.market {
         Market::Binance => {
             match from_value::<BinanceMessage>(v) {
                 Ok(msg) => {
-                    debug!("time={}", msg.event_time);
+                    let tid = msg.trade_id;
+                    let event_time_millis = msg.event_time;
+                    let now = Utc::now().timestamp_millis();
+                    let ms_dd = now - event_time_millis;
+                    debug!("remote={} tid={} ms_dd={}", remote.name, tid, ms_dd)
                 }
                 Err(err) => {
-                    debug!("binance parse error {}", err);
+                    trace!("binance parse error {}", err);
                 }
             }
             Ok(())
@@ -137,10 +146,16 @@ fn consume_msg(market: &Market, v: Value) -> Result<(), Error> {
         Market::Coinbase => {
             match from_value::<CoinbaseMsg>(v) {
                 Ok(msg) => {
-                    debug!("time={}", msg.time);
+                    let event_time_millis = msg.time.timestamp_millis();
+                    let now = Utc::now().timestamp_millis();
+                    let ms_dd = now - event_time_millis;
+                    debug!(
+                        "market={:?} url={} ms_dd={}",
+                        remote.market, remote.url, ms_dd
+                    )
                 }
                 Err(err) => {
-                    debug!("coinbase parse error {}", err);
+                    trace!("coinbase parse error {}", err);
                 }
             }
 
