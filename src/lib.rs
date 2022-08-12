@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use futures_util::{pin_mut, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -134,4 +135,15 @@ impl ConnectionManager {
             }
         }
     }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct CoinbaseMsg {
+    pub time: DateTime<Utc>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BinanceMessage {
+    #[serde(rename = "E")]
+    pub event_time: i64, // Event time
 }

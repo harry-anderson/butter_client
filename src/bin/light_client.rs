@@ -1,10 +1,10 @@
-use butter_client::{parse_json, ConnectionManager};
+use butter_client::{parse_json, BinanceMessage, CoinbaseMsg, ConnectionManager};
 use chrono::Utc;
 use futures_util::{future::join_all, pin_mut, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{from_str, from_value, Value};
 use structopt::StructOpt;
-use tokio::{join, select, sync::broadcast};
+use tokio::{select, sync::broadcast};
 use tokio_tungstenite::{
     tungstenite::protocol::Message,
     tungstenite::{Error, Result},
@@ -64,7 +64,7 @@ async fn main() {
                         error!("handle_msg error: {}", err)
                     }
                 }
-                debug("msg_reader exit")
+                debug("msg_reader exited")
             };
 
             if let Some(sub_msg) = remote.sub_msg {
@@ -124,11 +124,26 @@ async fn handle_msg(market: &Market, msg: Message) -> Result<(), Error> {
 fn consume_msg(market: &Market, v: Value) -> Result<(), Error> {
     match market {
         Market::Binance => {
-            debug!("binance_msg={}", v);
+            match from_value::<BinanceMessage>(v) {
+                Ok(msg) => {
+                    debug!("time={}", msg.event_time);
+                }
+                Err(err) => {
+                    debug!("binance parse error {}", err);
+                }
+            }
             Ok(())
         }
         Market::Coinbase => {
-            debug!("coinbase_msg={}", v);
+            match from_value::<CoinbaseMsg>(v) {
+                Ok(msg) => {
+                    debug!("time={}", msg.time);
+                }
+                Err(err) => {
+                    debug!("coinbase parse error {}", err);
+                }
+            }
+
             Ok(())
         }
     }
